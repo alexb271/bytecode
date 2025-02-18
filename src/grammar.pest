@@ -1,0 +1,42 @@
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+COMMENT = _{ ("/*" ~ (!"*/" ~ ANY)* ~ "*/") | ("//" ~ (!NEWLINE ~ ANY)* ~ NEWLINE) }
+
+start_symbol = { SOI ~ expression ~ EOI }
+
+expression = { level_1 ~ ((add | sub) ~ level_1)* }
+
+level_1 = { level_2 ~ ((mul | div) ~ level_2)* }
+
+level_2 = { number | "(" ~ expression ~ ")" }
+
+// OPERANDS
+operand = _{ literal | identifier }
+identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHA | ASCII_DIGIT | "_")* }
+
+// LIETARLS
+literal = _{ number | boolean | text }
+
+number = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+boolean = { ("true" ~ !(ASCII_ALPHANUMERIC | "_")) | ("false" ~ !(ASCII_ALPHANUMERIC | "_")) }
+text = @{ "\"" ~ (LETTER | MARK | NUMBER | (("\\" ~ ("\"" | "\\")) | !"\"" ~ PUNCTUATION) | SEPARATOR | SYMBOL)* ~ "\"" }
+
+// OPERATORS
+add = @{ "+" }
+sub = @{ "-" }
+mul = @{ "*" }
+div = @{ "/" }
+/*
+modulo = @{ "%" }
+pow = @{ "^" }
+and = @{ "and" ~ !(ASCII_ALPHANUMERIC | "_") }
+or = @{ "or" ~ !(ASCII_ALPHANUMERIC | "_") }
+less_than = @{ "<" }
+greater_than = @{ ">" }
+equal = @{ "==" }
+not_equal = @{ "!=" }
+assign = @{ "=" }
+dot = @{ "." }
+
+neg = @{ "-" }
+not = @{ "not" ~ !(ASCII_ALPHANUMERIC | "_") }
+*/
