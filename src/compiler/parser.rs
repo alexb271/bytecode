@@ -28,22 +28,50 @@ fn parse_recursive(pair: Pair<Rule>, level: u8) -> ASTNode {
         let mut left = parse_recursive(inner_rules.next().unwrap(), level + 1);
 
         while let Some(pair) = inner_rules.next() {
-            let operator = parse_bin_operator(pair);
+            let operator_span_start = pair.as_span().start();
+            let operator_span_end = pair.as_span().end();
+            let operator = parse_binary_operator(pair);
+
             let right = parse_recursive(inner_rules.next().unwrap(), level + 1);
-            left = ASTNode::BinaryOp(Box::new(left), operator, Box::new(right))
+
+            left = ASTNode::new(
+                left.span_start,
+                right.span_end,
+                ASTNodeContent::BinaryOperation(BinaryOperation::new(
+                    operator_span_start,
+                    operator_span_end,
+                    Box::new(left),
+                    operator,
+                    Box::new(right),
+                )),
+            );
         }
         left
     } else {
         let pair = inner_rules.next().unwrap();
+        let span_start = pair.as_span().start();
+        let span_end = pair.as_span().end();
         match pair.as_rule() {
-            Rule::number => parse_number(pair),
-            Rule::boolean => ASTNode::Value(Value::Bool(pair.as_str().parse::<bool>().unwrap())),
-            Rule::text => ASTNode::Value(Value::Str(Box::new(
-                pair.as_str().trim_matches('"').to_string(),
-            ))),
-            Rule::char => ASTNode::Value(Value::Char(
-                pair.as_str().trim_matches('\'').parse::<char>().unwrap(),
-            )),
+            Rule::number => ASTNode::new(span_start, span_end, parse_number(pair)),
+            Rule::boolean => ASTNode::new(
+                span_start,
+                span_end,
+                ASTNodeContent::Value(Value::Bool(pair.as_str().parse::<bool>().unwrap())),
+            ),
+            Rule::text => ASTNode::new(
+                span_start,
+                span_end,
+                ASTNodeContent::Value(Value::Str(Box::new(
+                    pair.as_str().trim_matches('"').to_string(),
+                ))),
+            ),
+            Rule::char => ASTNode::new(
+                span_start,
+                span_end,
+                ASTNodeContent::Value(Value::Char(
+                    pair.as_str().trim_matches('\'').parse::<char>().unwrap(),
+                )),
+            ),
             Rule::expression => parse_recursive(pair, 0),
             _ => {
                 dbg!(pair);
@@ -53,56 +81,140 @@ fn parse_recursive(pair: Pair<Rule>, level: u8) -> ASTNode {
     }
 }
 
-fn parse_number(pair: Pair<Rule>) -> ASTNode {
+#[inline]
+fn parse_number(pair: Pair<Rule>) -> ASTNodeContent {
     let number_string = pair.as_str().replace('_', "");
     if number_string.ends_with("uint") {
-        ASTNode::Value(Value::Uint(
+        ASTNodeContent::Value(Value::Uint(
             number_string.replace("uint", "").parse::<u64>().unwrap(),
         ))
     } else if number_string.ends_with("int") {
-        ASTNode::Value(Value::Int(
+        ASTNodeContent::Value(Value::Int(
             number_string.replace("int", "").parse::<i64>().unwrap(),
         ))
     } else if number_string.ends_with("float") {
-        ASTNode::Value(Value::Float(
+        ASTNodeContent::Value(Value::Float(
             number_string.replace("float", "").parse::<f64>().unwrap(),
         ))
     } else if let Ok(result) = number_string.parse::<i64>() {
-        ASTNode::Value(Value::Int(result))
+        ASTNodeContent::Value(Value::Int(result))
     } else if let Ok(result) = number_string.parse::<u64>() {
-        ASTNode::Value(Value::Uint(result))
+        ASTNodeContent::Value(Value::Uint(result))
     } else {
-        ASTNode::Value(Value::Float(number_string.parse::<f64>().unwrap()))
+        ASTNodeContent::Value(Value::Float(number_string.parse::<f64>().unwrap()))
     }
 }
 
-fn parse_bin_operator(pair: Pair<Rule>) -> BinOperator {
+#[inline]
+fn parse_binary_operator(pair: Pair<Rule>) -> BinaryOperator {
     match pair.as_rule() {
-        Rule::or => BinOperator::Or,
-        Rule::and => BinOperator::And,
-        Rule::equal => BinOperator::Equal,
-        Rule::not_equal => BinOperator::NotEqual,
-        Rule::less_than => BinOperator::LessThan,
-        Rule::less_eq => BinOperator::LessEq,
-        Rule::greater_than => BinOperator::GreaterThan,
-        Rule::greater_eq => BinOperator::GreaterEq,
-        Rule::add => BinOperator::Add,
-        Rule::sub => BinOperator::Sub,
-        Rule::mul => BinOperator::Mul,
-        Rule::div => BinOperator::Div,
-        Rule::modulo => BinOperator::Mod,
+        Rule::or => BinaryOperator::Or,
+        Rule::and => BinaryOperator::And,
+        Rule::equal => BinaryOperator::Equal,
+        Rule::not_equal => BinaryOperator::NotEqual,
+        Rule::less_than => BinaryOperator::LessThan,
+        Rule::less_eq => BinaryOperator::LessEq,
+        Rule::greater_than => BinaryOperator::GreaterThan,
+        Rule::greater_eq => BinaryOperator::GreaterEq,
+        Rule::add => BinaryOperator::Add,
+        Rule::sub => BinaryOperator::Sub,
+        Rule::mul => BinaryOperator::Mul,
+        Rule::div => BinaryOperator::Div,
+        Rule::modulo => BinaryOperator::Mod,
         _ => unreachable!(),
     }
 }
 
 #[derive(Debug)]
-pub enum ASTNode {
+pub struct ASTNode {
+    span_start: usize,
+    span_end: usize,
+    content: ASTNodeContent,
+}
+
+impl ASTNode {
+    #[inline]
+    pub fn new(span_start: usize, span_end: usize, content: ASTNodeContent) -> ASTNode {
+        ASTNode {
+            span_start,
+            span_end,
+            content,
+        }
+    }
+
+    #[inline]
+    pub fn span_start(&self) -> usize {
+        self.span_start
+    }
+
+    #[inline]
+    pub fn span_end(&self) -> usize {
+        self.span_end
+    }
+
+    #[inline]
+    pub fn content(&self) -> &ASTNodeContent {
+        &self.content
+    }
+}
+
+#[derive(Debug)]
+pub enum ASTNodeContent {
     Value(Value),
-    BinaryOp(Box<ASTNode>, BinOperator, Box<ASTNode>),
+    BinaryOperation(BinaryOperation),
+}
+
+#[derive(Debug)]
+pub struct BinaryOperation {
+    operator_span_start: usize,
+    operator_span_end: usize,
+    left: Box<ASTNode>,
+    operator: BinaryOperator,
+    right: Box<ASTNode>,
+}
+
+impl BinaryOperation {
+    #[inline]
+    pub fn new(
+        operator_span_start: usize,
+        operator_span_end: usize,
+        left: Box<ASTNode>,
+        operator: BinaryOperator,
+        right: Box<ASTNode>,
+    ) -> BinaryOperation {
+        BinaryOperation {
+            operator_span_start,
+            operator_span_end,
+            left,
+            operator,
+            right,
+        }
+    }
+
+    #[inline]
+    pub fn operator_span_start(&self) -> usize {
+        self.operator_span_start
+    }
+    #[inline]
+    pub fn operator_span_end(&self) -> usize {
+        self.operator_span_end
+    }
+    #[inline]
+    pub fn left(&self) -> &Box<ASTNode> {
+        &self.left
+    }
+    #[inline]
+    pub fn operator(&self) -> BinaryOperator {
+        self.operator
+    }
+    #[inline]
+    pub fn right(&self) -> &Box<ASTNode> {
+        &self.right
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum BinOperator {
+pub enum BinaryOperator {
     Or,
     And,
     Equal,
@@ -118,22 +230,22 @@ pub enum BinOperator {
     Mod,
 }
 
-impl std::fmt::Display for BinOperator {
+impl std::fmt::Display for BinaryOperator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BinOperator::Or => write!(f, "or"),
-            BinOperator::And => write!(f, "and"),
-            BinOperator::Equal => write!(f, "=="),
-            BinOperator::NotEqual => write!(f, "!="),
-            BinOperator::LessThan => write!(f, "<"),
-            BinOperator::LessEq => write!(f, "<="),
-            BinOperator::GreaterThan => write!(f, ">"),
-            BinOperator::GreaterEq => write!(f, ">="),
-            BinOperator::Add => write!(f, "+"),
-            BinOperator::Sub => write!(f, "-"),
-            BinOperator::Mul => write!(f, "*"),
-            BinOperator::Div => write!(f, "/"),
-            BinOperator::Mod => write!(f, "*"),
+            BinaryOperator::Or => write!(f, "or"),
+            BinaryOperator::And => write!(f, "and"),
+            BinaryOperator::Equal => write!(f, "=="),
+            BinaryOperator::NotEqual => write!(f, "!="),
+            BinaryOperator::LessThan => write!(f, "<"),
+            BinaryOperator::LessEq => write!(f, "<="),
+            BinaryOperator::GreaterThan => write!(f, ">"),
+            BinaryOperator::GreaterEq => write!(f, ">="),
+            BinaryOperator::Add => write!(f, "+"),
+            BinaryOperator::Sub => write!(f, "-"),
+            BinaryOperator::Mul => write!(f, "*"),
+            BinaryOperator::Div => write!(f, "/"),
+            BinaryOperator::Mod => write!(f, "*"),
         }
     }
 }
@@ -162,7 +274,7 @@ impl std::fmt::Display for Value {
 }
 
 #[allow(dead_code)]
-impl ASTNode {
+impl ASTNodeContent {
     pub fn print(&self) {
         self.print_recursive();
         println!();
@@ -170,14 +282,14 @@ impl ASTNode {
 
     fn print_recursive(&self) {
         match self {
-            ASTNode::Value(value) => {
+            ASTNodeContent::Value(value) => {
                 print!("{value}");
             }
-            ASTNode::BinaryOp(left, operator, right) => {
+            ASTNodeContent::BinaryOperation(binop) => {
                 print!("(");
-                left.print_recursive();
-                print!("{operator}");
-                right.print_recursive();
+                binop.left.content.print_recursive();
+                print!("{}", binop.operator);
+                binop.right.content.print_recursive();
                 print!(")");
             }
         }
