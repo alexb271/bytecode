@@ -36,28 +36,7 @@ fn parse_recursive(pair: Pair<Rule>, level: u8) -> ASTNode {
     } else {
         let pair = inner_rules.next().unwrap();
         match pair.as_rule() {
-            Rule::number => {
-                let number_string = pair.as_str().replace('_', "");
-                if number_string.ends_with("uint") {
-                    ASTNode::Value(Value::Uint(
-                        number_string.replace("uint", "").parse::<u64>().unwrap(),
-                    ))
-                } else if number_string.ends_with("int") {
-                    ASTNode::Value(Value::Int(
-                        number_string.replace("int", "").parse::<i64>().unwrap(),
-                    ))
-                } else if number_string.ends_with("float") {
-                    ASTNode::Value(Value::Float(
-                        number_string.replace("float", "").parse::<f64>().unwrap(),
-                    ))
-                } else if let Ok(result) = number_string.parse::<i64>() {
-                    ASTNode::Value(Value::Int(result))
-                } else if let Ok(result) = number_string.parse::<u64>() {
-                    ASTNode::Value(Value::Uint(result))
-                } else {
-                    ASTNode::Value(Value::Float(number_string.parse::<f64>().unwrap()))
-                }
-            }
+            Rule::number => parse_number(pair),
             Rule::boolean => ASTNode::Value(Value::Bool(pair.as_str().parse::<bool>().unwrap())),
             Rule::text => ASTNode::Value(Value::Str(Box::new(
                 pair.as_str().trim_matches('"').to_string(),
@@ -71,6 +50,29 @@ fn parse_recursive(pair: Pair<Rule>, level: u8) -> ASTNode {
                 unreachable!()
             }
         }
+    }
+}
+
+fn parse_number(pair: Pair<Rule>) -> ASTNode {
+    let number_string = pair.as_str().replace('_', "");
+    if number_string.ends_with("uint") {
+        ASTNode::Value(Value::Uint(
+            number_string.replace("uint", "").parse::<u64>().unwrap(),
+        ))
+    } else if number_string.ends_with("int") {
+        ASTNode::Value(Value::Int(
+            number_string.replace("int", "").parse::<i64>().unwrap(),
+        ))
+    } else if number_string.ends_with("float") {
+        ASTNode::Value(Value::Float(
+            number_string.replace("float", "").parse::<f64>().unwrap(),
+        ))
+    } else if let Ok(result) = number_string.parse::<i64>() {
+        ASTNode::Value(Value::Int(result))
+    } else if let Ok(result) = number_string.parse::<u64>() {
+        ASTNode::Value(Value::Uint(result))
+    } else {
+        ASTNode::Value(Value::Float(number_string.parse::<f64>().unwrap()))
     }
 }
 

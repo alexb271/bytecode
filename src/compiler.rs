@@ -3,6 +3,33 @@ mod parser;
 use crate::opcode::Opcode;
 use parser::{ASTNode, BinOperator, Value};
 
+enum Operand {
+    Value(Value),
+    Register(Register),
+}
+
+enum Register {
+    Int(u8),
+    Uint(u8),
+    Float(u8),
+    Bool(u8),
+    Str(u8),
+    Char(u8),
+}
+
+impl Register {
+    fn value(&self) -> u8 {
+        match self {
+            Register::Int(reg)
+            | Register::Uint(reg)
+            | Register::Float(reg)
+            | Register::Bool(reg)
+            | Register::Str(reg)
+            | Register::Char(reg) => *reg,
+        }
+    }
+}
+
 pub struct Compiler {
     register_stack: Vec<u8>,
     operand_stack: Vec<Operand>,
@@ -422,33 +449,6 @@ impl Compiler {
                     }
                 }
             }
-        }
-    }
-}
-
-enum Operand {
-    Value(Value),
-    Register(Register),
-}
-
-enum Register {
-    Int(u8),
-    Uint(u8),
-    Float(u8),
-    Bool(u8),
-    Str(u8),
-    Char(u8),
-}
-
-impl Register {
-    fn value(&self) -> u8 {
-        match self {
-            Register::Int(reg) => *reg,
-            Register::Uint(reg) => *reg,
-            Register::Float(reg) => *reg,
-            Register::Bool(reg) => *reg,
-            Register::Str(reg) => *reg,
-            Register::Char(reg) => *reg,
         }
     }
 }
