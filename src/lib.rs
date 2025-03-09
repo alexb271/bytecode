@@ -1,13 +1,37 @@
 mod compiler;
 mod interpreter;
 mod opcode;
-mod parser;
+
+#[cfg(test)]
+mod tests;
 
 use compiler::Compiler;
 use interpreter::Thread;
 use std::io::Write;
 
 pub fn lib_main() {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 2 {
+        eprintln!("Unrecognized command line arguments");
+        std::process::exit(1);
+    } else if args.len() == 2 {
+        let mut compiler = Compiler::new();
+        let file_path = args[1].as_str();
+        let input = match std::fs::read_to_string(file_path) {
+            Ok(text) => text,
+            Err(e) => {
+                eprintln!("Error reading file '{file_path}': {e}");
+                std::process::exit(1);
+            }
+        };
+        process(&mut compiler, input.as_str());
+    } else {
+        interactive();
+    }
+}
+
+pub fn interactive() {
+    let mut compiler = Compiler::new();
     let mut input = String::new();
     loop {
         print!(">>> ");
@@ -25,22 +49,22 @@ pub fn lib_main() {
         }
 
         if !input.is_empty() {
-            process(&input);
+            process(&mut compiler, &input);
         }
 
         input.clear();
     }
 }
 
-fn process(input: &str) {
-    match parser::parse(input) {
-        Ok(ast) => {
-            let bytecode = Compiler::new().compile(&ast);
-            let mut t = Thread::new(bytecode);
-            t.exec();
+fn process(compiler: &mut Compiler, input: &str) {
+    match compiler.compile(input, "stdin") {
+        Ok(bytecode) => {
+            let mut thread = Thread::new(bytecode);
+            thread.exec();
+            if let Some(val) = thread.return_value() {
+                println!("{val}");
+            }
         }
-        Err(e) => {
-            println!("{e}");
-        }
-    };
+        Err(e) => println!("{e}"),
+    }
 }

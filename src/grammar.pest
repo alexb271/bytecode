@@ -1,42 +1,65 @@
 WHITESPACE = _{ " " | "\t" | NEWLINE }
-COMMENT = _{ ("/*" ~ (!"*/" ~ ANY)* ~ "*/") | ("//" ~ (!NEWLINE ~ ANY)* ~ NEWLINE) }
+COMMENT = _{ ("/*" ~ (!"*/" ~ ANY)* ~ "*/") | ("//" ~ (!NEWLINE ~ ANY)* ~ (NEWLINE | EOI)) }
 
 start_symbol = { SOI ~ expression ~ EOI }
 
-expression = { level_1 ~ ((add | sub) ~ level_1)* }
+expression = { level_1 ~ (or ~ level_1)* }
 
-level_1 = { level_2 ~ ((mul | div) ~ level_2)* }
+level_1 = { level_2 ~ (and ~ level_2)* }
 
-level_2 = { number | "(" ~ expression ~ ")" }
+level_2 = { level_3 ~ ((equal | not_equal) ~ level_3)* }
+
+level_3 = { level_4 ~ ((less_eq | less_than | greater_eq | greater_than) ~ level_4)* }
+
+level_4 = { level_5 ~ ((add | sub) ~ level_5)* }
+
+level_5 = { level_6 ~ ((mul | div | modulo) ~ level_6)* }
+
+level_6 = { ((not | neg) ~ level_6) | level_7}
+
+level_7 = { literal | "(" ~ expression ~ ")" }
 
 // OPERANDS
 operand = _{ literal | identifier }
 identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHA | ASCII_DIGIT | "_")* }
 
 // LIETARLS
-literal = _{ number | boolean | text }
+literal = _{ number | boolean | text | char }
 
-number = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
-boolean = { ("true" ~ !(ASCII_ALPHANUMERIC | "_")) | ("false" ~ !(ASCII_ALPHANUMERIC | "_")) }
+number = @{ "-"? ~ ASCII_DIGIT ~ (ASCII_DIGIT | ("_" ~ ASCII_DIGIT))* ~ ("." ~ ASCII_DIGIT ~ (ASCII_DIGIT | ("_" ~ ASCII_DIGIT))*)? }
+boolean = @{ ("true" ~ !(ASCII_ALPHANUMERIC | "_")) | ("false" ~ !(ASCII_ALPHANUMERIC | "_")) }
 text = @{ "\"" ~ (LETTER | MARK | NUMBER | (("\\" ~ ("\"" | "\\")) | !"\"" ~ PUNCTUATION) | SEPARATOR | SYMBOL)* ~ "\"" }
+char = @{ "'" ~ (LETTER | MARK | NUMBER | PUNCTUATION | SEPARATOR | SYMBOL) ~ "'" }
 
 // OPERATORS
-add = @{ "+" }
-sub = @{ "-" }
-mul = @{ "*" }
-div = @{ "/" }
-/*
-modulo = @{ "%" }
-pow = @{ "^" }
-and = @{ "and" ~ !(ASCII_ALPHANUMERIC | "_") }
-or = @{ "or" ~ !(ASCII_ALPHANUMERIC | "_") }
-less_than = @{ "<" }
-greater_than = @{ ">" }
-equal = @{ "==" }
-not_equal = @{ "!=" }
-assign = @{ "=" }
 dot = @{ "." }
+index = { "[" ~ expression ~ "]" }
 
 neg = @{ "-" }
 not = @{ "not" ~ !(ASCII_ALPHANUMERIC | "_") }
-*/
+
+mul = @{ "*" }
+div = @{ "/" }
+modulo = @{ "%" }
+
+add = @{ "+" }
+sub = @{ "-" }
+
+less_than = @{ "<" }
+less_eq = @{ "<=" }
+greater_than = @{ ">" }
+greater_eq = @{ ">=" }
+
+equal = @{ "==" }
+not_equal = @{ "!=" }
+
+and = @{ "and" ~ !(ASCII_ALPHANUMERIC | "_") }
+
+or = @{ "or" ~ !(ASCII_ALPHANUMERIC | "_") }
+
+assign = @{ "=" }
+assign_add = @{ "+=" }
+assign_sub = @{ "-=" }
+assign_mul = @{ "*=" }
+assign_div = @{ "/=" }
+assign_mod = @{ "%=" }
