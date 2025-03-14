@@ -1,3 +1,4 @@
+use super::language_components::*;
 use pest::{Parser, iterators::Pair};
 use pest_derive::Parser;
 
@@ -8,44 +9,145 @@ const MAX_PRECEDENCE_DEPTH: u8 = 7;
 #[grammar = "grammar.pest"]
 struct MyParser;
 
-pub fn parse(input: &str) -> Result<ASTNode, String> {
+pub fn parse(input: &str) -> Result<FunctionBody, String> {
     let parse_result = MyParser::parse(Rule::start_symbol, &input);
     match parse_result {
         Ok(mut parse_content) => {
-            let ast = parse_recursive(
-                parse_content.next().unwrap().into_inner().next().unwrap(),
-                0,
-            );
-            Ok(ast)
+            let function_body_pair = parse_content.next().unwrap().into_inner().next().unwrap();
+            Ok(parse_function_body(function_body_pair))
         }
         Err(e) => Err(e.to_string()),
     }
 }
 
-fn parse_recursive(pair: Pair<Rule>, level: u8) -> ASTNode {
+fn parse_function_body(pair: Pair<Rule>) -> FunctionBody {
+    let mut result: Vec<ControlFlow> = Vec::new();
+    let mut inner_rules = pair.into_inner();
+    while let Some(control_flow_pair) = inner_rules.next() {
+        result.push(parse_control_flow(control_flow_pair));
+    }
+    FunctionBody::new(result)
+}
+
+fn parse_control_flow(pair: Pair<Rule>) -> ControlFlow {
+    let control_flow_pair = pair.into_inner().next().unwrap();
+    match control_flow_pair.as_rule() {
+        Rule::while_loop => ControlFlow::WhileLoop(parse_while_loop(control_flow_pair)),
+        Rule::basic_block => ControlFlow::BasicBlock(parse_basic_block(control_flow_pair)),
+        _ => unreachable!(),
+    }
+}
+
+fn parse_while_loop(pair: Pair<Rule>) -> WhileLoop {
+    let span = Span::new(pair.as_span().start(), pair.as_span().end());
+    let mut inner_rules = pair.into_inner();
+    let condition = parse_expression(inner_rules.next().unwrap(), 0);
+    let mut body: Vec<Statement> = Vec::new();
+
+    if let Some(basic_block_pair) = inner_rules.next() {
+        let mut inner_rules = basic_block_pair.into_inner();
+        while let Some(statement_pair) = inner_rules.next() {
+            body.push(parse_statement(statement_pair));
+        }
+    }
+    WhileLoop::new(span, condition, BasicBlock::new(body))
+}
+
+fn parse_basic_block(pair: Pair<Rule>) -> BasicBlock {
+    let mut inner_rules = pair.into_inner();
+    let mut result: Vec<Statement> = Vec::new();
+
+    while let Some(pair) = inner_rules.next() {
+        match pair.as_rule() {
+            Rule::statement => {
+                result.push(parse_statement(pair));
+            }
+            Rule::EOI => (),
+            _ => unreachable!(),
+        }
+    }
+    BasicBlock::new(result)
+}
+
+fn parse_statement(pair: Pair<Rule>) -> Statement {
+    match pair.as_rule() {
+        Rule::statement => parse_statement(pair.into_inner().next().unwrap()),
+        Rule::let_statement => Statement::LetStatement(parse_let_statement(pair)),
+        Rule::assignment => Statement::Assignment(parse_assignment(pair)),
+        Rule::return_statement => Statement::ReturnStatement(parse_return_statement(pair)),
+        Rule::expression_statement => parse_statement(pair.into_inner().next().unwrap()),
+        Rule::expression => Statement::Expression(parse_expression(pair, 0)),
+        _ => unreachable!(),
+    }
+}
+
+fn parse_let_statement(pair: Pair<Rule>) -> LetStatement {
+    let span = Span::new(pair.as_span().start(), pair.as_span().end());
+    let mut inner_rules = pair.into_inner();
+
+    let identifier_pair = inner_rules.next().unwrap();
+    let identifier_span = Span::new(
+        identifier_pair.as_span().start(),
+        identifier_pair.as_span().end(),
+    );
+    let identifier = Identifier::new(identifier_pair.as_str().to_owned(), identifier_span);
+
+    let operator_pair = inner_rules.next().unwrap();
+    let operator_span = Span::new(
+        operator_pair.as_span().start(),
+        operator_pair.as_span().end(),
+    );
+
+    let expression = parse_expression(inner_rules.next().unwrap(), 0);
+
+    LetStatement::new(span, identifier, operator_span, Box::new(expression))
+}
+
+fn parse_assignment(pair: Pair<Rule>) -> Assignment {
+    let span = Span::new(pair.as_span().start(), pair.as_span().end());
+    let mut inner_rules = pair.into_inner();
+
+    let lhs_pair = inner_rules.next().unwrap();
+    let lhs_span = Span::new(lhs_pair.as_span().start(), lhs_pair.as_span().end());
+    let lhs = Identifier::new(lhs_pair.as_str().to_owned(), lhs_span);
+
+    let operator_pair = inner_rules.next().unwrap();
+    let operator_span = Span::new(
+        operator_pair.as_span().start(),
+        operator_pair.as_span().end(),
+    );
+    let operator = parse_assignment_operator(operator_pair);
+
+    let rhs = parse_expression(inner_rules.next().unwrap(), 0);
+
+    Assignment::new(span, lhs, operator, operator_span, Box::new(rhs))
+}
+
+fn parse_return_statement(pair: Pair<Rule>) -> ReturnStatement {
+    let span = Span::new(pair.as_span().start(), pair.as_span().end());
+    let expression = parse_expression(pair.into_inner().next().unwrap(), 0);
+    ReturnStatement::new(span, Box::new(expression))
+}
+
+fn parse_expression(pair: Pair<Rule>, level: u8) -> Expression {
     let mut inner_rules = pair.into_inner();
 
     if level < MAX_BINARY_PRECEDENCE_DEPTH {
-        let mut left = parse_recursive(inner_rules.next().unwrap(), level + 1);
+        let mut left = parse_expression(inner_rules.next().unwrap(), level + 1);
 
         while let Some(pair) = inner_rules.next() {
-            let operator_span_start = pair.as_span().start();
-            let operator_span_end = pair.as_span().end();
+            let operator_span = Span::new(pair.as_span().start(), pair.as_span().end());
             let operator = parse_binary_operator(pair);
 
-            let right = parse_recursive(inner_rules.next().unwrap(), level + 1);
+            let right = parse_expression(inner_rules.next().unwrap(), level + 1);
 
-            left = ASTNode::new(
-                left.span_start,
-                right.span_end,
-                ASTNodeContent::BinaryOperation(BinaryOperation::new(
-                    operator_span_start,
-                    operator_span_end,
-                    Box::new(left),
-                    operator,
-                    Box::new(right),
-                )),
-            );
+            left = Expression::BinaryOperation(BinaryOperation::new(
+                Span::new(left.span().start(), right.span().end()),
+                operator_span,
+                Box::new(left),
+                operator,
+                Box::new(right),
+            ));
         }
         left
     } else if level < MAX_PRECEDENCE_DEPTH {
@@ -53,54 +155,46 @@ fn parse_recursive(pair: Pair<Rule>, level: u8) -> ASTNode {
 
         // if there is no unary prefix operator at all, pass through
         if let Rule::level_7 = pair.as_rule() {
-            return parse_recursive(pair, level + 1);
+            return parse_expression(pair, level + 1);
         }
 
-        let operator_span_start = pair.as_span().start();
-        let operator_span_end = pair.as_span().end();
+        let operator_span = Span::new(pair.as_span().start(), pair.as_span().end());
         let operator = parse_unary_operator(pair);
 
-        let node = parse_recursive(
-            inner_rules.next().unwrap(),
-            level,
-        );
+        let operand = parse_expression(inner_rules.next().unwrap(), level);
 
-        ASTNode::new(
-            operator_span_start,
-            node.span_end,
-            ASTNodeContent::UnaryOperation(UnaryOperation::new(
-                operator_span_start,
-                operator_span_end,
-                operator,
-                Box::new(node),
-            )),
-        )
+        Expression::UnaryOperation(UnaryOperation::new(
+            Span::new(operator_span.start(), operand.span().end()),
+            operator_span,
+            operator,
+            Box::new(operand),
+        ))
     } else {
         let pair = inner_rules.next().unwrap();
         let span_start = pair.as_span().start();
         let span_end = pair.as_span().end();
         match pair.as_rule() {
-            Rule::number => ASTNode::new(span_start, span_end, parse_number(pair)),
-            Rule::boolean => ASTNode::new(
-                span_start,
-                span_end,
-                ASTNodeContent::Value(Value::Bool(pair.as_str().parse::<bool>().unwrap())),
-            ),
-            Rule::text => ASTNode::new(
-                span_start,
-                span_end,
-                ASTNodeContent::Value(Value::Str(Box::new(
-                    pair.as_str().trim_matches('"').to_string(),
-                ))),
-            ),
-            Rule::char => ASTNode::new(
-                span_start,
-                span_end,
-                ASTNodeContent::Value(Value::Char(
-                    pair.as_str().trim_matches('\'').parse::<char>().unwrap(),
-                )),
-            ),
-            Rule::expression => parse_recursive(pair, 0),
+            Rule::number => Expression::Literal(Literal::new(
+                parse_number(pair),
+                Span::new(span_start, span_end),
+            )),
+            Rule::boolean => Expression::Literal(Literal::new(
+                Value::Bool(pair.as_str().parse::<bool>().unwrap()),
+                Span::new(span_start, span_end),
+            )),
+            Rule::string => Expression::Literal(Literal::new(
+                Value::Str(Box::new(pair.as_str().trim_matches('"').to_owned())),
+                Span::new(span_start, span_end),
+            )),
+            Rule::char => Expression::Literal(Literal::new(
+                Value::Char(pair.as_str().trim_matches('\'').parse::<char>().unwrap()),
+                Span::new(span_start, span_end),
+            )),
+            Rule::identifier => Expression::Identifier(Identifier::new(
+                pair.as_str().to_owned(),
+                Span::new(span_start, span_end),
+            )),
+            Rule::expression => parse_expression(pair, 0),
             _ => {
                 dbg!(pair);
                 unreachable!()
@@ -110,12 +204,12 @@ fn parse_recursive(pair: Pair<Rule>, level: u8) -> ASTNode {
 }
 
 #[inline]
-fn parse_number(pair: Pair<Rule>) -> ASTNodeContent {
+fn parse_number(pair: Pair<Rule>) -> Value {
     let number_string = pair.as_str().replace('_', "");
     if let Ok(result) = number_string.parse::<i64>() {
-        ASTNodeContent::Value(Value::Int(result))
+        Value::Int(result)
     } else {
-        ASTNodeContent::Value(Value::Float(number_string.parse::<f64>().unwrap()))
+        Value::Float(number_string.parse::<f64>().unwrap())
     }
 }
 
@@ -148,234 +242,15 @@ fn parse_unary_operator(pair: Pair<Rule>) -> UnaryOperator {
     }
 }
 
-#[derive(Debug)]
-pub struct ASTNode {
-    span_start: usize,
-    span_end: usize,
-    content: ASTNodeContent,
-}
-
-impl ASTNode {
-    #[inline]
-    pub fn new(span_start: usize, span_end: usize, content: ASTNodeContent) -> ASTNode {
-        ASTNode {
-            span_start,
-            span_end,
-            content,
-        }
-    }
-
-    #[inline]
-    pub fn span_start(&self) -> usize {
-        self.span_start
-    }
-
-    #[inline]
-    pub fn span_end(&self) -> usize {
-        self.span_end
-    }
-
-    #[inline]
-    pub fn content(&self) -> &ASTNodeContent {
-        &self.content
-    }
-}
-
-#[derive(Debug)]
-pub enum ASTNodeContent {
-    Value(Value),
-    BinaryOperation(BinaryOperation),
-    UnaryOperation(UnaryOperation),
-}
-
-#[derive(Debug)]
-pub struct BinaryOperation {
-    operator_span_start: usize,
-    operator_span_end: usize,
-    left: Box<ASTNode>,
-    operator: BinaryOperator,
-    right: Box<ASTNode>,
-}
-
-impl BinaryOperation {
-    #[inline]
-    pub fn new(
-        operator_span_start: usize,
-        operator_span_end: usize,
-        left: Box<ASTNode>,
-        operator: BinaryOperator,
-        right: Box<ASTNode>,
-    ) -> BinaryOperation {
-        BinaryOperation {
-            operator_span_start,
-            operator_span_end,
-            left,
-            operator,
-            right,
-        }
-    }
-
-    #[inline]
-    pub fn operator_span_start(&self) -> usize {
-        self.operator_span_start
-    }
-    #[inline]
-    pub fn operator_span_end(&self) -> usize {
-        self.operator_span_end
-    }
-    #[inline]
-    pub fn left(&self) -> &Box<ASTNode> {
-        &self.left
-    }
-    #[inline]
-    pub fn operator(&self) -> BinaryOperator {
-        self.operator
-    }
-    #[inline]
-    pub fn right(&self) -> &Box<ASTNode> {
-        &self.right
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum BinaryOperator {
-    Or,
-    And,
-    Equal,
-    NotEqual,
-    LessThan,
-    LessEq,
-    GreaterThan,
-    GreaterEq,
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Mod,
-}
-
-impl std::fmt::Display for BinaryOperator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BinaryOperator::Or => write!(f, "or"),
-            BinaryOperator::And => write!(f, "and"),
-            BinaryOperator::Equal => write!(f, "=="),
-            BinaryOperator::NotEqual => write!(f, "!="),
-            BinaryOperator::LessThan => write!(f, "<"),
-            BinaryOperator::LessEq => write!(f, "<="),
-            BinaryOperator::GreaterThan => write!(f, ">"),
-            BinaryOperator::GreaterEq => write!(f, ">="),
-            BinaryOperator::Add => write!(f, "+"),
-            BinaryOperator::Sub => write!(f, "-"),
-            BinaryOperator::Mul => write!(f, "*"),
-            BinaryOperator::Div => write!(f, "/"),
-            BinaryOperator::Mod => write!(f, "%"),
-        }
-    }
-}
-#[derive(Debug)]
-pub struct UnaryOperation {
-    operator_span_start: usize,
-    operator_span_end: usize,
-    operator: UnaryOperator,
-    operand: Box<ASTNode>,
-}
-
-impl UnaryOperation {
-    #[inline]
-    pub fn new(
-        operator_span_start: usize,
-        operator_span_end: usize,
-        operator: UnaryOperator,
-        operand: Box<ASTNode>,
-    ) -> UnaryOperation {
-        UnaryOperation {
-            operator_span_start,
-            operator_span_end,
-            operator,
-            operand,
-        }
-    }
-
-    #[inline]
-    pub fn operator_span_start(&self) -> usize {
-        self.operator_span_start
-    }
-    #[inline]
-    pub fn operator_span_end(&self) -> usize {
-        self.operator_span_end
-    }
-    #[inline]
-    pub fn operator(&self) -> UnaryOperator {
-        self.operator
-    }
-    #[inline]
-    pub fn operand(&self) -> &Box<ASTNode> {
-        &self.operand
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum UnaryOperator {
-    Not,
-    Neg,
-}
-
-impl std::fmt::Display for UnaryOperator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            UnaryOperator::Not => write!(f, "not"),
-            UnaryOperator::Neg => write!(f, "-"),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum Value {
-    Int(i64),
-    Float(f64),
-    Bool(bool),
-    Str(Box<String>),
-    Char(char),
-}
-
-impl std::fmt::Display for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Value::Int(value) => write!(f, "{}", value),
-            Value::Float(value) => write!(f, "{}", value),
-            Value::Bool(value) => write!(f, "{}", value),
-            Value::Str(value) => write!(f, "{}", value),
-            Value::Char(value) => write!(f, "{}", value),
-        }
-    }
-}
-
-#[allow(dead_code)]
-impl ASTNodeContent {
-    pub fn print(&self) {
-        self.print_recursive();
-        println!();
-    }
-
-    fn print_recursive(&self) {
-        match self {
-            ASTNodeContent::Value(value) => {
-                print!("{value}");
-            }
-            ASTNodeContent::BinaryOperation(binop) => {
-                print!("(");
-                binop.left.content.print_recursive();
-                print!("{}", binop.operator);
-                binop.right.content.print_recursive();
-                print!(")");
-            }
-            ASTNodeContent::UnaryOperation(unop) => {
-                print!("(");
-                print!("{}", unop.operator);
-                unop.operand.content.print_recursive();
-                print!(")");
-            }
-        }
+#[inline]
+fn parse_assignment_operator(pair: Pair<Rule>) -> AssignmentOperator {
+    match pair.as_rule() {
+        Rule::assign => AssignmentOperator::Basic,
+        Rule::assign_add => AssignmentOperator::Add,
+        Rule::assign_sub => AssignmentOperator::Sub,
+        Rule::assign_mul => AssignmentOperator::Mul,
+        Rule::assign_div => AssignmentOperator::Div,
+        Rule::assign_mod => AssignmentOperator::Mod,
+        _ => unreachable!(),
     }
 }

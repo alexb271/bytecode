@@ -2,6 +2,8 @@ use crate::opcode::Opcode;
 
 pub struct Thread {
     instructions: Vec<Opcode>,
+    program_counter: usize,
+
     registers: Box<[Value; 256]>,
     return_value: Option<Value>,
 }
@@ -12,6 +14,7 @@ impl Thread {
 
         Thread {
             instructions,
+            program_counter: 0,
             registers: Box::new(registers),
             return_value: None,
         }
@@ -22,8 +25,9 @@ impl Thread {
     }
 
     pub fn exec(&mut self) {
-        for op in &self.instructions {
-            match op {
+        self.program_counter = 0;
+        while self.program_counter < self.instructions.len() {
+            match &self.instructions[self.program_counter] {
                 Opcode::Or(lhs_idx, rhs_idx, res_idx) => {
                     let lhs = self.registers[*lhs_idx as usize].unwrap_bool();
                     let rhs = self.registers[*rhs_idx as usize].unwrap_bool();
@@ -184,7 +188,8 @@ impl Thread {
                 Opcode::AddStr(lhs_idx, rhs_idx, res_idx) => {
                     let lhs = self.registers[*lhs_idx as usize].unwrap_string();
                     let rhs = self.registers[*rhs_idx as usize].unwrap_string();
-                    self.registers[*res_idx as usize] = Value::Str(Box::new(*lhs + rhs.as_str()));
+                    self.registers[*res_idx as usize] =
+                        Value::Str(Box::new(String::from(lhs.as_str()) + rhs.as_str()));
                 }
 
                 Opcode::SubInt(lhs_idx, rhs_idx, res_idx) => {
@@ -246,7 +251,7 @@ impl Thread {
                 }
                 Opcode::NegFloat(operand_idx, res_idx) => {
                     let operand = self.registers[*operand_idx as usize].unwrap_float();
-                    self.registers[*res_idx as usize] = Value::Float(-1.0* operand);
+                    self.registers[*res_idx as usize] = Value::Float(-1.0 * operand);
                 }
                 Opcode::NegBool(operand_idx, res_idx) => {
                     let operand = self.registers[*operand_idx as usize].unwrap_bool();
@@ -256,14 +261,27 @@ impl Thread {
                 Opcode::LoadConst(_target_idx, _pool_idx) => {
                     todo!();
                 }
-                Opcode::LoadNum(_target_idx, _value) => {
-                    todo!();
+                Opcode::LoadNum(target_idx, value) => {
+                    self.registers[*target_idx as usize] = Value::Int(*value as i64);
                 }
-                Opcode::Copy(_source_idx, _dest_idx) => {
-                    todo!();
+                Opcode::Copy(source_idx, dest_idx) => {
+                    self.registers[*dest_idx as usize] =
+                        self.registers[*source_idx as usize].clone();
                 }
+
                 Opcode::Save(source_reg) => {
                     self.return_value = Some(self.registers[*source_reg as usize].clone());
+                }
+                Opcode::Jump(amount) => {
+                    self.program_counter =
+                        self.program_counter.wrapping_add_signed(*amount as isize);
+                }
+                Opcode::JumpCond(operand_idx, amount) => {
+                    let operand = self.registers[*operand_idx as usize].unwrap_bool();
+                    if !operand {
+                        self.program_counter =
+                            self.program_counter.wrapping_add_signed(*amount as isize);
+                    }
                 }
                 Opcode::Error => {
                     panic!("Internal error");
@@ -280,7 +298,7 @@ impl Thread {
                     self.registers[*target_idx as usize] = Value::Bool(*value);
                 }
                 Opcode::LoadStr(target_idx, value) => {
-                    self.registers[*target_idx as usize] = Value::Str(value.clone());
+                    self.registers[*target_idx as usize] = Value::Str(Box::new(*value.clone()));
                 }
                 Opcode::LoadChar(target_idx, value) => {
                     self.registers[*target_idx as usize] = Value::Char(*value);
@@ -289,6 +307,7 @@ impl Thread {
                     println!("{}", self.registers[*target_idx as usize]);
                 }
             }
+            self.program_counter = self.program_counter.wrapping_add(1);
         }
     }
 }
@@ -328,9 +347,9 @@ impl Value {
     }
 
     #[inline]
-    fn unwrap_string(&self) -> Box<String> {
+    fn unwrap_string(&self) -> &String {
         match self {
-            Value::Str(v) => v.clone(),
+            Value::Str(v) => v,
             _ => panic!("Internal type error"),
         }
     }

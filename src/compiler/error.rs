@@ -1,9 +1,13 @@
-use super::parser::{BinaryOperator, UnaryOperator};
+use super::language_components::{BinaryOperator, Span, UnaryOperator};
 
 #[derive(Debug, Clone)]
 pub enum ErrorKind {
     InvalidBinaryOperation(BinaryOperator, String, String),
     InvalidUnaryOperation(UnaryOperator, String),
+    IdentifierNotFound,
+    IdentifierIsKeyword,
+    InvalidAssignment(String, String),
+    ArgumentInvalidType(String, String),
 }
 
 impl std::fmt::Display for ErrorKind {
@@ -23,6 +27,18 @@ impl std::fmt::Display for ErrorKind {
                     operator, typename
                 )
             }
+            ErrorKind::IdentifierNotFound => write!(f, "Identifier not found"),
+            ErrorKind::IdentifierIsKeyword => write!(f, "Expected identifier, found keyword"),
+            ErrorKind::InvalidAssignment(t1, t2) => {
+                write!(
+                    f,
+                    "Cannot assign to a variable of type '{}' a value of type '{}'",
+                    t1, t2
+                )
+            }
+            ErrorKind::ArgumentInvalidType(t1, t2) => {
+                write!(f, "Expected type '{}', found type '{}'", t1, t2)
+            }
         }
     }
 }
@@ -32,10 +48,8 @@ pub struct Error {
     filename: String,
     source_code: String,
     kind: ErrorKind,
-    context_start: usize,
-    context_end: usize,
-    error_start: usize,
-    error_end: usize,
+    context: Span,
+    error: Span,
 }
 
 impl Error {
@@ -43,19 +57,15 @@ impl Error {
         filename: String,
         source_code: String,
         kind: ErrorKind,
-        context_start: usize,
-        context_end: usize,
-        error_start: usize,
-        error_end: usize,
+        context: Span,
+        error: Span,
     ) -> Error {
         Error {
             filename,
             source_code,
             kind,
-            context_start,
-            context_end,
-            error_start,
-            error_end,
+            context,
+            error,
         }
     }
 
@@ -70,7 +80,7 @@ impl Error {
         // Find the most recent newline before the context_start
         // Also count which line the context starts on
         while let Some((idx, ch)) = iter.next() {
-            if idx == self.context_start {
+            if idx == self.context.start() {
                 break;
             }
             if ch == '\n' {
@@ -86,7 +96,7 @@ impl Error {
         // Print the whole line which contains the context_end
         while let Some((idx, ch)) = iter.next() {
             if ch == '\n' {
-                if idx >= self.context_end {
+                if idx >= self.context.end() {
                     break;
                 } else {
                     result.push('\n');
@@ -96,10 +106,10 @@ impl Error {
                     line_count += 1;
                     Self::add_line_count_prefix(line_count, padding, &mut result, &mut buffer);
                 }
-            } else if idx < self.error_start {
+            } else if idx < self.error.start() {
                 result.push(ch);
                 buffer.push(' ');
-            } else if idx >= self.error_start && idx < self.error_end {
+            } else if idx >= self.error.start() && idx < self.error.end() {
                 result.push(ch);
                 buffer.push('^');
             } else {
@@ -147,10 +157,8 @@ mod tests {
                 String::from("int"),
                 String::from("bool"),
             ),
-            0,
-            8,
-            2,
-            3,
+            Span::new(0, 8),
+            Span::new(2, 3),
         );
         let expected = "In file: test
 In line 1:
@@ -169,10 +177,8 @@ Error: Invalid operation '+' for types 'int' and 'bool'";
                 String::from("int"),
                 String::from("bool"),
             ),
-            0,
-            8,
-            0,
-            8,
+            Span::new(0, 8),
+            Span::new(0, 8),
         );
         let expected = "In file: test
 In line 1:
@@ -191,10 +197,8 @@ Error: Invalid operation '+' for types 'int' and 'bool'";
                 String::from("int"),
                 String::from("bool"),
             ),
-            4,
-            12,
-            4,
-            12,
+            Span::new(4, 12),
+            Span::new(4, 12),
         );
         let expected = "In file: test
 In line 1:
@@ -225,10 +229,8 @@ Error: Invalid operation '*' for types 'int' and 'bool'";
                 String::from("int"),
                 String::from("char"),
             ),
-            108,
-            115,
-            108,
-            115,
+            Span::new(108, 115),
+            Span::new(108, 115),
         );
         let expected = "In file: test
 In line 9:

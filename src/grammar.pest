@@ -1,7 +1,19 @@
 WHITESPACE = _{ " " | "\t" | NEWLINE }
 COMMENT = _{ ("/*" ~ (!"*/" ~ ANY)* ~ "*/") | ("//" ~ (!NEWLINE ~ ANY)* ~ (NEWLINE | EOI)) }
 
-start_symbol = { SOI ~ expression ~ EOI }
+start_symbol = { SOI ~ function_body ~ EOI }
+
+function_body = { control_flow* }
+control_flow = { while_loop | basic_block }
+while_loop = { "while" ~ expression ~ "{" ~ basic_block* ~ "}" }
+basic_block = { statement+ }
+
+statement = { let_statement | assignment | return_statement | expression_statement }
+
+let_statement = { "let" ~ identifier ~ assign ~ expression ~ ";" }
+assignment = { identifier ~ assign_operator ~ expression ~ ";" }
+expression_statement = { expression ~ ";" }
+return_statement = { "return" ~ expression ~ ";" }
 
 expression = { level_1 ~ (or ~ level_1)* }
 
@@ -17,19 +29,20 @@ level_5 = { level_6 ~ ((mul | div | modulo) ~ level_6)* }
 
 level_6 = { ((not | neg) ~ level_6) | level_7}
 
-level_7 = { literal | "(" ~ expression ~ ")" }
+level_7 = { operand | "(" ~ expression ~ ")" }
 
 // OPERANDS
 operand = _{ literal | identifier }
 identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHA | ASCII_DIGIT | "_")* }
 
 // LIETARLS
-literal = _{ number | boolean | text | char }
+literal = _{ number | boolean | string | char }
 
 number = @{ "-"? ~ ASCII_DIGIT ~ (ASCII_DIGIT | ("_" ~ ASCII_DIGIT))* ~ ("." ~ ASCII_DIGIT ~ (ASCII_DIGIT | ("_" ~ ASCII_DIGIT))*)? }
 boolean = @{ ("true" ~ !(ASCII_ALPHANUMERIC | "_")) | ("false" ~ !(ASCII_ALPHANUMERIC | "_")) }
-text = @{ "\"" ~ (LETTER | MARK | NUMBER | (("\\" ~ ("\"" | "\\")) | !"\"" ~ PUNCTUATION) | SEPARATOR | SYMBOL)* ~ "\"" }
+string = @{ "\"" ~ text ~ "\"" }
 char = @{ "'" ~ (LETTER | MARK | NUMBER | PUNCTUATION | SEPARATOR | SYMBOL) ~ "'" }
+text = @{ (LETTER | MARK | NUMBER | (("\\" ~ ("\"" | "\\")) | !"\"" ~ PUNCTUATION) | SEPARATOR | SYMBOL)* }
 
 // OPERATORS
 dot = @{ "." }
@@ -57,6 +70,7 @@ and = @{ "and" ~ !(ASCII_ALPHANUMERIC | "_") }
 
 or = @{ "or" ~ !(ASCII_ALPHANUMERIC | "_") }
 
+assign_operator = _{ assign | assign_add | assign_sub | assign_mul | assign_div | assign_mod }
 assign = @{ "=" }
 assign_add = @{ "+=" }
 assign_sub = @{ "-=" }
